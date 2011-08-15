@@ -18,7 +18,7 @@ var async = require('async')
   , pg = require("pg")
   , Client;
 
-if(pg.native) pg = pg.native;
+//if(pg.native) pg = pg.native;
 Client = pg.Client;
 
 // TODO: Seriously?!! No escape function?
