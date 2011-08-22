@@ -82,12 +82,6 @@ exports.database = function(wrappedDB, settings, logger)
   
   //set the flushing flag to false, this flag shows that there is a flushing action happing at the moment
   this.isFlushing = false;
-  
-  //ensure the buffer is flushed before the application ends
-  process.on('exit', function () 
-  {
-    flush(this);
-  });
 };
 
 /**
@@ -123,6 +117,19 @@ exports.database.prototype.close = function(callback)
 }
 
 /**
+ Calls the callback the next time all buffers are flushed
+*/
+exports.database.prototype.doShutdown = function(callback)
+{
+  //wait until the buffer is fully written
+  if(this.settings.writeInterval > 0)
+    this.shutdownCallback = callback;
+  //we write direct, so there is no need to wait for a callback  
+  else
+    callback();
+}
+
+/**
  Gets the value trough the wrapper. 
 */
 exports.database.prototype.get = function(key, callback)
@@ -130,14 +137,14 @@ exports.database.prototype.get = function(key, callback)
   //if cache is enabled and data is in the cache, get the value from the cache
   if(this.settings.cache > 0 && this.buffer[key])
   {
-    this.logger.debug(key + ": get from cache - " + JSON.stringify(this.buffer[key].value));
+    this.logger.debug("GET    - " + key + " - " + JSON.stringify(this.buffer[key].value) + " - from cache");
     this.buffer[key].timestamp = new Date().getTime();
     callback(null, this.buffer[key].value);
   }
   //caching is disabled but its still in a dirty writing cache, so we have to get the value out of the cache too
   else if(this.settings.cache == 0 && this.buffer[key] && this.buffer[key].dirty)
   {
-    this.logger.debug(key + ": get from dirty buffer - " + JSON.stringify(this.buffer[key].value));
+    this.logger.debug("GET    - " + key + " - " + JSON.stringify(this.buffer[key].value) + " - from dirty buffer");
     this.buffer[key].timestamp = new Date().getTime();
     callback(null, this.buffer[key].value);
   }
@@ -171,7 +178,7 @@ exports.database.prototype.get = function(key, callback)
       //call the garbage collector
       self.gc();
       
-      self.logger.debug(key + ": get from database - " + JSON.stringify(value));
+      self.logger.debug("GET    - " + key + " - " + JSON.stringify(value) + " - from database ");
 
       callback(err,value);
     });
@@ -186,7 +193,7 @@ exports.database.prototype.set = function(key, value, bufferCallback, writeCallb
   //writing cache is enabled, so simply write it into the buffer
   if(this.settings.writeInterval > 0)
   {
-    this.logger.debug(key + ": set to buffer - " + JSON.stringify(value));
+    this.logger.debug("SET    - "+ key + " - " + JSON.stringify(value) + " - to buffer");
 
     //initalize the buffer object if it not exists
     if(!this.buffer[key]) 
@@ -225,7 +232,7 @@ exports.database.prototype.set = function(key, value, bufferCallback, writeCallb
   //writecache is disabled, so we write directly to the database
   else
   {
-    this.logger.debug(key + "- set to database - " + JSON.stringify(value));
+    this.logger.debug("SET    - " + key + " - " + JSON.stringify(value) + " - to database");
 
     //create a wrapper callback for write and buffer callback
     var callback = function (err)
@@ -258,7 +265,7 @@ exports.database.prototype.setSub = function(key, sub, value, bufferCallback, wr
 {
   var _this = this;
 
-  this.logger.debug(key + ": setsub - " + JSON.stringify(sub) + " - "+ JSON.stringify(value));
+  this.logger.debug("SETSUB - " + key + JSON.stringify(sub) + " - "+ JSON.stringify(value));
 
   async.waterfall([
     //get the full value
@@ -334,7 +341,7 @@ exports.database.prototype.getSub = function(key, sub, callback)
         }
       }
       
-      _this.logger.debug(key + ": getsub - " + JSON.stringify(sub) + " - "+ JSON.stringify(subvalue));
+      _this.logger.debug("GETSUB - " + key + JSON.stringify(sub) + " - " + JSON.stringify(subvalue));
       callback(err, subvalue);
     }
   });
@@ -345,7 +352,7 @@ exports.database.prototype.getSub = function(key, sub, callback)
 */
 exports.database.prototype.remove = function(key, bufferCallback, writeCallback)
 {
-  this.logger.debug(key + ": remove");
+  this.logger.debug("REMOVE - " + key);
 
   //make a set to null out of it
   this.set(key, null, bufferCallback, writeCallback);
@@ -442,7 +449,7 @@ function flush (db, callback)
   //send the bulk to the database driver and call the callbacks with the results  
   if(operations.length > 0)
   {      
-    db.logger.info("Flushing " + operations.length + " values");
+    db.logger.info("Flushed " + operations.length + " values");
 
     //set the flushing flag
     db.isFlushing = true;
@@ -469,6 +476,11 @@ function flush (db, callback)
       //set the flushing flag to false
       db.isFlushing = false;
     });
+  }
+  //the writing buffer is empty and there is a shutdown callback, call it!
+  else if(db.shutdownCallback != null)
+  {
+    db.shutdownCallback();
   }
 }
 
