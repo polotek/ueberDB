@@ -127,10 +127,10 @@ exports.database.prototype.get = function (key, callback)
   this.db.query(getQuery, [key], function(err,results)
   {
     var value = null;
-    
-    if(!err && results.length == 1)
+   
+    if(!err && results.rows.length == 1)
     {
-      value = results[0].value;
+      value = results.rows[0].value;
     }
   
     callback(err,value);
@@ -180,8 +180,7 @@ exports.database.prototype.doBulk = function (bulk, callback)
   self.db.query(sql, function(err) {  
     if(err)
     {
-      console.error("Error: Bulk operation failed - " + sql);
-      self.db.query('rollback');
+      self.db.query('ROLLBACK;');
     }
 
     callback(err);
@@ -193,12 +192,3 @@ exports.database.prototype.close = function(callback)
   this.db.end();
   callback('Closed');
 }
-
-
-;['get', 'set', 'remove', 'doBulk'].forEach(function(val, i) {
-  var f = exports.database.prototype[val];
-  exports.database.prototype[val] = function() {
-    console.log(val.toUpperCase() + ': ', arguments);
-    f.apply(this, arguments);
-  }
-});
