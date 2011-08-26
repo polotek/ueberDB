@@ -82,10 +82,22 @@ exports.database = function(settings)
 
 exports.database.prototype.init = function(callback)
 {
-  var self = this;
+  var self = this
+    , connectionErrHandler = function(err) {
+        self.db.end();
+        if(self.db.stream) { self.db.stream.destroy(); }
+        self.db = new Client(self.settings);
+        callback && callback(err);
+      }
+
   self.db.connect();
+  self.db.on('error', connectionErrHandler);
   self.db.once('connect', function(err) {
-    if(err) return callback(err);
+    self.db.removeListener('error', connectionErrHandler);
+
+    if(err) {
+      return callback && callback(err);
+    }
 
     var checkErrors = function (cb) {
       // These structures may already be there, so ignore that error,
@@ -107,10 +119,6 @@ exports.database.prototype.init = function(callback)
       }
     ]
     , callback);
-  });
-
-  self.db.on('error', function(err) {
-    console.error('DB Error Event: ' + err.name + ' ' + err.message);
   });
 }
 
