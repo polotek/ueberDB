@@ -24,8 +24,10 @@ catch(e)
   process.exit(1);
 }
 
-var async = require("async");
-
+var async = require("async")
+  , util = require('util')
+  , events = require('events') 
+  ;
 exports.database = function(settings)
 {
   this.db=null; 
@@ -51,11 +53,14 @@ exports.database = function(settings)
     this.settings.json = true;
   }
 }
+util.inherits(exports.database, events.EventEmitter)
 
 exports.database.prototype.init = function(callback)
 {
-  var _this = this;
-
+  var _this = this
+    , starttime = new Date().getTime()
+    ;
+  
   async.waterfall([
     function(callback)
     {
@@ -64,32 +69,54 @@ exports.database.prototype.init = function(callback)
     function(callback)
     {
       var sql = "CREATE TABLE IF NOT EXISTS store (key TEXT PRIMARY KEY,value TEXT)";
-      _this.db.run(sql,callback);
+      _this.db.run(sql, function () {
+        _this.emit('metric.init', (new Date()).getTime() - starttime)
+        callback.apply(this, arguments)
+      });
     } 
   ],callback);
 }
 
 exports.database.prototype.get = function (key, callback)
 {
-  this.db.get("SELECT value FROM store WHERE key = ?", key, function(err,row)
+  var self = this
+    , starttime = (new Date()).getTime()
+    ;
+  self.db.get("SELECT value FROM store WHERE key = ?", key, function(err,row)
   {
+    self.emit('metric.get', (new Date()).getTime() - starttime)
     callback(err,row ? row.value : null);
   });
 }
 
 exports.database.prototype.set = function (key, value, callback)
 {
-  this.db.run("REPLACE INTO store VALUES (?,?)", key, value, callback);
+  var self = this
+    , starttime = (new Date()).getTime()
+    ;
+  self.db.run("REPLACE INTO store VALUES (?,?)", key, value, function () {
+    self.emit('metric.set', (new Date()).getTime() - starttime)
+    callback.apply(this, arguments)
+  });
 }
 
 exports.database.prototype.remove = function (key, callback)
 {
-  this.db.run("DELETE FROM store WHERE key = ?", key, callback);
+  var self = this
+    , starttime = (new Date()).getTime()
+    ;
+  self.db.run("DELETE FROM store WHERE key = ?", key, function () {
+    self.emit('metric.remove', (new Date()).getTime() - starttime)
+    callback.apply(this, arguments)
+  });
 }
 
 exports.database.prototype.doBulk = function (bulk, callback)
 { 
-  var sql = "BEGIN TRANSACTION;\n";
+  var sql = "BEGIN TRANSACTION;\n"
+    , self = this
+    , starttime = (new Date()).getTime()
+    ;
   for(var i in bulk)
   {
     if(bulk[i].type == "set")
@@ -103,7 +130,8 @@ exports.database.prototype.doBulk = function (bulk, callback)
   }
   sql += "END TRANSACTION;";
   
-  this.db.exec(sql, function(err){
+  self.db.exec(sql, function(err){
+    self.emit('metric.bulk', (new Date()).getTime() - starttime)
     if(err)
     {
       console.error("ERROR WITH SQL: ");
