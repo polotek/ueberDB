@@ -124,7 +124,10 @@ exports.database.prototype.init = function(callback)
 
 exports.database.prototype.get = function (key, callback)
 {
-  this.db.query(getQuery, [key], function(err,results)
+  var self = this
+    , starttime = (new Date()).getTime()
+    ;
+  self.db.query(getQuery, [key], function(err,results)
   {
     var value = null;
    
@@ -132,24 +135,36 @@ exports.database.prototype.get = function (key, callback)
     {
       value = results.rows[0].value;
     }
-  
+    self.emit('metric.get', (new Date()).getTime() - starttime)
     callback(err,value);
   });
 }
 
 exports.database.prototype.set = function (key, value, callback)
 {
+  var self = this
+    , starttime = (new Date()).getTime()
+    ;
   if(key.length > 100) {
     return callback(new Error("Your Key can only be 100 chars"));
   }
 
   // Careful! Ordering of key and value is reversed in sql
-  this.db.query(setQuery, [key, value], callback);
+  self.db.query(setQuery, [key, value], function () {
+    self.emit('metric.set', (new Date()).getTime() - starttime)
+    callback.apply(this, arguments)
+  });
 }
 
 exports.database.prototype.remove = function (key, callback)
 {
-  this.db.query(removeQuery, [key], callback);
+  var self this
+    , starttime = (new Date()).getTime()
+    ;
+  self.db.query(removeQuery, [key], function () {
+    self.emit('metric.remove', (new Date()).getTime() - starttime)
+    callback.apply(this, arguments)
+  });
 }
 
 exports.database.prototype.doBulk = function (bulk, callback)
@@ -159,6 +174,7 @@ exports.database.prototype.doBulk = function (bulk, callback)
     , sqlPart
     , op
     , ctr = 1
+    , starttime = (new Date()).getTime()
     , values = [];
 
   for(var i in bulk)
@@ -178,11 +194,12 @@ exports.database.prototype.doBulk = function (bulk, callback)
   sql = sql.join('\n');
 
   self.db.query(sql, function(err) {  
+    self.
     if(err)
     {
       self.db.query('ROLLBACK;');
     }
-
+    self.emit('metric.bulk', (new Date()).getTime() - starttime)
     callback(err);
   });
 }
