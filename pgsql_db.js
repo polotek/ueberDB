@@ -21,9 +21,6 @@ var util = require('util')
 
 //if(pg.native) pg = pg.native;
 
-// TODO: Seriously?!! No escape function?
-var escape = require('mysql').Client.prototype.escape;
-
 // TODO: wtf, need a proper upsert
 // http://www.postgresql.org/docs/current/static/plpgsql-control-structures.html#PLPGSQL-UPSERT-EXAMPLE
 var upsertFunc =  '' +
@@ -128,8 +125,8 @@ exports.database.prototype.init = function(callback)
 exports.database.prototype.get = function (key, callback)
 {
   var self = this
-    , starttime = (new Date()).getTime()
-    ;
+    , starttime = (new Date()).getTime();
+
   self.db.query(getQuery, [key], function(err,results)
   {
     var value = null;
@@ -146,8 +143,8 @@ exports.database.prototype.get = function (key, callback)
 exports.database.prototype.set = function (key, value, callback)
 {
   var self = this
-    , starttime = (new Date()).getTime()
-    ;
+    , starttime = (new Date()).getTime();
+
   if(key.length > 100) {
     return callback(new Error("Your Key can only be 100 chars"));
   }
@@ -162,8 +159,8 @@ exports.database.prototype.set = function (key, value, callback)
 exports.database.prototype.remove = function (key, callback)
 {
   var self = this
-    , starttime = (new Date()).getTime()
-    ;
+    , starttime = (new Date()).getTime();
+
   self.db.query(removeQuery, [key], function () {
     self.emit('metric.remove', (new Date()).getTime() - starttime);
     callback.apply(this, arguments);
@@ -173,41 +170,59 @@ exports.database.prototype.remove = function (key, callback)
 exports.database.prototype.doBulk = function (bulk, callback)
 { 
   var self = this
-    , sql = ['BEGIN;']
-    , sqlPart
-    , op
-    , ctr = 1
-    , starttime = (new Date()).getTime()
-    , values = [];
+    , bulkStarttime = (new Date()).getTime()
+    , breakLoop = false
+    , handle = function(err) {
+      if(err) {
+        breakLoop = err;
+        self.db.query('ROLLBACK;');
+        self.db.resumeDrain();
+        return err;
+      }
 
-  for(var i in bulk)
-  {
-    op = bulk[i];
+      return false;
+    }
+
+  self.db.pauseDrain();
+  self.db.query('BEGIN;');
+
+  bulk.forEach(function(op, i) {
+    if(breakLoop) { return; }
+
+    var starttime = (new Date()).getTime();
+
     if(op.type == "set")
     {
-      sqlPart = 'SELECT upsert_key(' + escape(op.key) + ', ' + escape(op.value) + ');';
+      self.db.query(setQuery, [op.key, op.value], function(err) {
+        if(handle(err)) { return; }
+
+        self.emit('metric.set', (new Date()).getTime() - starttime);
+      });
     }
     else if(op.type == "remove")
     {
-      sqlPart = 'DELETE FROM "store" WHERE "key" =' + escape(op.key) + ';';
-    }
-    sql.push(sqlPart);
-  }
-  sql.push('COMMIT;');
-  sql = sql.join('\n');
+      self.db.query(removeQuery, [op.key], function(err) {
+        if(handle(err)) { return; }
 
-  self.db.query(sql, function(err) {  
-    if(err)
-    {
-      self.db.query('ROLLBACK;');
+        self.emit('metric.remove', (new Date()).getTime() - starttime);
+      });
     }
-    self.emit('metric.bulk', (new Date()).getTime() - starttime);
-    callback(err);
   });
+
+  // breakLoop contains any errors thrown during the transaction
+  if(breakLoop) {
+    callback(breakLoop);
+  } else {
+    self.db.query('COMMIT;', function(err) {
+      self.emit('metric.bulk', (new Date()).getTime() - bulkStarttime);
+      self.db.resumeDrain();
+      callback(breakLoop);
+    });
+  }
 }
 
 exports.database.prototype.close = function(callback)
 {
   this.db.end();
-  callback('Closed');
+  if(callback) callback();
 }
